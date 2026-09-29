@@ -1,0 +1,152 @@
+:root {
+  --el-color-primary: #00695c;
+  --el-color-primary-light-3: #4d9489;
+  --el-color-primary-light-5: #7fb0a6;
+  --el-color-primary-light-7: #b2cec7;
+  --el-color-primary-light-8: #cde0da;
+  --el-color-primary-light-9: #e6f2ef;
+  --el-color-primary-dark-2: #00503f;
+
+  --ink: #22333a;
+  --ink-soft: #5c6f77;
+  --ink-mute: #8b9aa1;
+  --line: #dde5e6;
+  --paper: #ffffff;
+  --floor: #f2f5f5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+  background: var(--floor);
+  color: var(--ink);
+}
+
+/* ---------- 全局工具类：各模块页共用 ---------- */
+.page {
+  padding: 16px 20px 28px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.page-title em {
+  margin-left: 8px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-mute);
+}
+
+.page-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(0, 60, 50, 0.05);
+}
+
+.panel + .panel {
+  margin-top: 14px;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.panel-title small {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+
+.muted {
+  color: var(--ink-mute);
+  font-size: 12px;
+}
+
+.rule-tip {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #04463c;
+  background: var(--el-color-primary-light-9);
+  border-left: 3px solid var(--el-color-primary);
+  border-radius: 4px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 环数徽章：计分页与历史明细共用 */
+.ring-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #eef2f2;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.ring-chip.is-ten {
+  background: #fff6d8;
+  border-color: #f0d47c;
+  color: #8a6100;
+}
+
+.ring-chip.is-x {
+  background: linear-gradient(135deg, #00695c, #2e8b7a);
+  border-color: #00503f;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 105, 92, 0.35);
+}
+
+.ring-chip.is-miss {
+  background: #f1f3f4;
+  border-color: #dde1e3;
+  color: #9aa5aa;
+}
