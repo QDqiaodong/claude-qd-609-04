@@ -42,6 +42,14 @@ public final class MemberDtos {
             Long roundCount,
             /** 当前持有的个人最好条数（按可比组别：弓种 + 射距 + 箭数，每组至多一条） */
             Integer bestGroupCount,
-            Integer validCertCount) {
+            Integer validCertCount,
+            /** ACTIVE 正常 / MERGED 已合并封存 */
+            String status,
+            String statusName,
+            /** 已封存时：跳转的保留档案 id / 合并时间 / 操作经理 / 原因 */
+            Long mergedIntoId,
+            java.time.LocalDateTime mergedAt,
+            String mergedBy,
+            String mergeReason) {
     }
 }

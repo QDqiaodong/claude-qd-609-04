@@ -54,10 +54,10 @@ public class MemberController {
         return ApiResponse.success("充值成功", memberService.recharge(id, req));
     }
 
-    /** 会员下拉（开台 / 记分 / 报名 / 租借共用） */
+    /** 会员下拉（开台 / 记分 / 报名 / 租借共用）：已合并封存档案不出现 */
     @GetMapping("/members/options")
     public ApiResponse<List<MemberDtos.MemberView>> options() {
-        List<MemberDtos.MemberView> list = memberService.list();
+        List<MemberDtos.MemberView> list = memberService.listActive();
         if (list.isEmpty()) {
             throw new BizException("还没有会员，请先开卡");
         }

@@ -63,7 +63,7 @@ public class CourseService {
     @Transactional
     public CourseDtos.CourseView enroll(Long id, CourseDtos.EnrollReq req) {
         Course course = require(id);
-        Member member = memberService.require(req.memberId());
+        Member member = memberService.requireActive(req.memberId());
         if (course.getEnrolled() >= course.getCapacity()) {
             throw new BizException("课程 [" + course.getCourseName() + "] 已报满，无法报名");
         }

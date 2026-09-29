@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.archery.range.domain.Member;
 import com.archery.range.domain.Round;
 
 import jakarta.persistence.LockModeType;
@@ -48,4 +49,14 @@ public interface RoundRepository extends JpaRepository<Round, Long> {
     @Modifying
     @Query("update Round r set r.personalBest = false where r.id in :ids and r.personalBest = true")
     int clearPersonalBest(@Param("ids") List<Long> ids);
+
+    /** 档案合并：把来源档案的全部计分回合（含进行中与已完成、箭支明细随外键保留）迁到保留档案 */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Round r set r.member = :keep where r.member = :source")
+    int reassignMember(@Param("keep") Member keep, @Param("source") Member source);
+
+    /** 悲观写锁（按 id 升序）：合并迁移时锁住来源 / 保留双方的全部回合，与记箭 / 提交互斥 */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Round r where r.member in :members order by r.id")
+    List<Round> findByMemberInForUpdate(@Param("members") List<Member> members);
 }

@@ -87,4 +87,15 @@ public interface CertApplicationRepository extends JpaRepository<CertApplication
     int resubmitIfNeedMore(@Param("id") Long id,
             @Param("windowStart") LocalDateTime windowStart,
             @Param("windowEnd") LocalDateTime windowEnd);
+
+    /** 悲观写锁（按 id 升序）：合并迁移时锁住双方认证申请，与复核通过 / 撤回互斥 */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from CertApplication a where a.member in :members order by a.id")
+    List<CertApplication> findByMemberInForUpdate(@Param("members") List<com.archery.range.domain.Member> members);
+
+    /** 档案合并：把来源档案的全部认证申请（含有效 / 过期 / 撤回 / 办理中，评定与轨迹随外键保留）迁到保留档案 */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update CertApplication a set a.member = :keep where a.member = :source")
+    int reassignMember(@Param("keep") com.archery.range.domain.Member keep,
+            @Param("source") com.archery.range.domain.Member source);
 }

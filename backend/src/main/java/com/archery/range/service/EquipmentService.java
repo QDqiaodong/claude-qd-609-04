@@ -70,7 +70,7 @@ public class EquipmentService {
             throw new BizException("器材 [" + equipment.getEquipCode() + "] 当前为「"
                     + RangeDict.equipStatusName(equipment.getStatus()) + "」，不能租借");
         }
-        Member member = memberService.require(req.memberId());
+        Member member = memberService.requireActive(req.memberId());
         // 租借弓类器材必须持有该弓种的当前有效认证（护具 / 箭支不限制）
         certService.requireBowCert(member, equipment.getType());
         memberService.charge(member, equipment.getRentPrice(), "租借 " + equipment.getEquipCode());

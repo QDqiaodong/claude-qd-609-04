@@ -251,6 +251,10 @@ public class CertService {
         String operator = requireName(req.operator(), "教练");
         Member member = memberRepository.findById(req.memberId())
                 .orElseThrow(() -> new BizException("会员不存在：id=" + req.memberId()));
+        if (Member.STATUS_MERGED.equals(member.getStatus())) {
+            throw new BizException("会员卡号 [" + member.getCardNo() + "]（" + member.getName()
+                    + "）已于档案合并后封存，不能发起新的认证申请");
+        }
         CertRule rule = ruleRepository.findById(req.ruleId())
                 .orElseThrow(() -> new BizException("认证规则不存在：id=" + req.ruleId()));
         if (!"ACTIVE".equals(rule.getStatus())) {

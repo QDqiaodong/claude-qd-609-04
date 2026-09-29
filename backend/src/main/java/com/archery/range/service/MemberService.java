@@ -36,6 +36,12 @@ public class MemberService {
         return memberRepository.findAllByOrderByIdAsc().stream().map(this::toView).toList();
     }
 
+    /** 业务下拉（开台 / 记分 / 报名 / 租借）：已合并封存的历史档案不能再被选中 */
+    @Transactional(readOnly = true)
+    public List<MemberDtos.MemberView> listActive() {
+        return memberRepository.findByStatusOrderByIdAsc(Member.STATUS_ACTIVE).stream().map(this::toView).toList();
+    }
+
     @Transactional(readOnly = true)
     public List<MemberDtos.MemberView> listByLevel(String level) {
         return memberRepository.findByLevelOrderByIdAsc(level).stream().map(this::toView).toList();
@@ -74,9 +80,24 @@ public class MemberService {
         if (amount.compareTo(RangeDict.RECHARGE_MIN) < 0 || amount.compareTo(RangeDict.RECHARGE_MAX) > 0) {
             throw new BizException("单次充值金额需在 100 ~ 10000 元之间");
         }
-        Member member = require(id);
+        Member member = requireActive(id);
         member.setBalance(member.getBalance().add(amount).setScale(2, RoundingMode.HALF_UP));
         return toView(memberRepository.save(member));
+    }
+
+    /**
+     * 业务入口取会员：已合并封存的历史档案不能再充值 / 开台 / 报名 / 租借 / 开始新回合，
+     * 统一在此拦截并提示旧卡应使用的保留档案。
+     */
+    @Transactional(readOnly = true)
+    public Member requireActive(Long id) {
+        Member member = require(id);
+        if (Member.STATUS_MERGED.equals(member.getStatus())) {
+            String hint = member.getMergedIntoId() == null ? "" : "，请使用保留档案";
+            throw new BizException("会员卡号 [" + member.getCardNo() + "]（" + member.getName()
+                    + "）已于档案合并后封存，不能继续使用" + hint);
+        }
+        return member;
     }
 
     /**
@@ -133,6 +154,12 @@ public class MemberService {
                 RangeDict.memberDiscount(member.getLevel()),
                 roundRepository.countByMemberId(member.getId()),
                 bestGroups.size(),
-                validCertCount);
+                validCertCount,
+                member.getStatus() == null ? Member.STATUS_ACTIVE : member.getStatus(),
+                RangeDict.memberStatusName(member.getStatus() == null ? Member.STATUS_ACTIVE : member.getStatus()),
+                member.getMergedIntoId(),
+                member.getMergedAt(),
+                member.getMergedBy(),
+                member.getMergeReason());
     }
 }

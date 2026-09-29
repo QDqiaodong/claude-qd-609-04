@@ -47,6 +47,32 @@ public final class RangeDict {
     public static final BigDecimal RECHARGE_MIN = BigDecimal.valueOf(100);
     public static final BigDecimal RECHARGE_MAX = BigDecimal.valueOf(10000);
 
+    // ---------------- 重复档案合并 ----------------
+    /** 会员档案状态：正常 / 已合并封存 */
+    private static final Map<String, String> MEMBER_STATUS = Map.of(
+            "ACTIVE", "正常",
+            "MERGED", "已合并封存");
+
+    /** 合并单状态 */
+    private static final Map<String, String> MERGE_STATUS = Map.of(
+            "PREVIEWED", "待确认",
+            "CONFIRMED", "已合并",
+            "SUPERSEDED", "已被新预演取代",
+            "STALE", "预演后数据已变化");
+
+    /** 合并轨迹动作 */
+    private static final Map<String, String> MERGE_ACTION = Map.of(
+            "PREVIEW", "合并预演",
+            "SUPERSEDE", "旧预演被取代",
+            "STALE", "预演失效",
+            "CONFIRM", "确认合并");
+
+    /** 互斥项类别 */
+    private static final Map<String, String> MERGE_CONFLICT = Map.of(
+            "ONGOING_ROUND", "进行中的计分回合",
+            "SAME_EQUIPMENT", "同一件租出器材",
+            "VALID_CERT_SCOPE", "同范围有效认证");
+
     // ---------------- 环数 ----------------
     /** 允许的环数标记：X（内十）/ 10 ~ 1 / M（脱靶） */
     private static final Map<String, Integer> RING_VALUE = Map.ofEntries(
@@ -302,6 +328,24 @@ public final class RangeDict {
             return "SILVER";
         }
         return "NORMAL";
+    }
+
+    // ---------------- 重复档案合并取值 ----------------
+
+    public static String memberStatusName(String status) {
+        return status == null ? "" : MEMBER_STATUS.getOrDefault(status, status);
+    }
+
+    public static String mergeStatusName(String status) {
+        return status == null ? "" : MERGE_STATUS.getOrDefault(status, status);
+    }
+
+    public static String mergeActionName(String action) {
+        return action == null ? "" : MERGE_ACTION.getOrDefault(action, action);
+    }
+
+    public static String mergeConflictName(String type) {
+        return type == null ? "" : MERGE_CONFLICT.getOrDefault(type, type);
     }
 
     public static boolean isValidRing(String ring) {

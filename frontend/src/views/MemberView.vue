@@ -1,14 +1,26 @@
 <template>
   <div class="page">
     <div class="page-head">
-      <h2 class="page-title">会员管理 <em>开卡 · 充值 · 等级与余额</em></h2>
+      <h2 class="page-title">会员管理 <em>开卡 · 充值 · 等级与余额 · 重复档案合并</em></h2>
       <div class="page-tools">
+        <el-input
+          v-model="cardEntryNo"
+          placeholder="按会员卡号进入（旧卡自动跳转）"
+          clearable
+          style="width: 250px"
+          @keyup.enter="enterByCard"
+        >
+          <template #append>
+            <el-button @click="enterByCard">进入</el-button>
+          </template>
+        </el-input>
         <el-button type="primary" @click="createVisible = true">开卡</el-button>
       </div>
     </div>
 
     <div class="rule-tip">
       单次充值 100 ~ 10000 元；累计消费满 3000 元升银卡、满 10000 元升金卡，等级只升不降，折扣分别为 9.5 折 / 9 折。
+      同一人误开两张卡时由值班经理使用「合并档案」：先预演核对差异与互斥项，确认后余额与全部业务关系迁到保留卡，来源卡封存不可再用。
     </div>
 
     <div class="panel">
@@ -31,6 +43,12 @@
           <template #default="{ row }">¥ {{ money(row.totalSpend) }}</template>
         </el-table-column>
         <el-table-column prop="registerDate" label="注册日期" width="120" />
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.status === 'MERGED'" size="small" type="info" effect="plain">已合并封存</el-tag>
+            <el-tag v-else size="small" type="success" effect="plain">正常</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="有效认证" width="110">
           <template #default="{ row }">
             <el-tag v-if="row.validCertCount > 0" size="small" type="success" effect="dark">
@@ -48,10 +66,18 @@
             <span v-else class="muted">暂无成绩</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openRecharge(row)">充值</el-button>
-            <el-button link type="success" @click="openCerts(row)">认证</el-button>
+            <template v-if="row.status === 'MERGED'">
+              <el-button link type="warning" @click="openMergedRedirect(row)">合并去向</el-button>
+              <el-button link type="primary" @click="openMergeTrail(row)">合并轨迹</el-button>
+            </template>
+            <template v-else>
+              <el-button link type="primary" @click="openRecharge(row)">充值</el-button>
+              <el-button link type="success" @click="openCerts(row)">认证</el-button>
+              <el-button link type="warning" @click="startMerge(row)">合并档案</el-button>
+              <el-button link @click="openMergeTrail(row)">轨迹</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -88,6 +114,251 @@
         <el-button @click="rechargeVisible = false">取消</el-button>
         <el-button type="primary" @click="submitRecharge">确认充值</el-button>
       </template>
+    </el-dialog>
+
+    <!-- ============ 重复档案合并：选来源卡 + 预演 ============ -->
+    <el-dialog
+      v-model="mergeVisible"
+      :title="`重复档案合并 · 保留卡 ${mergeForm.keep ? mergeForm.keep.cardNo + '（' + mergeForm.keep.name + '）' : ''}`"
+      width="900px"
+    >
+      <el-form label-width="92px">
+        <el-form-item label="来源档案">
+          <el-select
+            v-model="mergeForm.sourceId"
+            filterable
+            placeholder="选择同一会员误开的另一张卡（将被封存）"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="m in mergeCandidates"
+              :key="m.id"
+              :label="`${m.cardNo}｜${m.name}｜${m.phone}｜余额 ¥${money(m.balance)}`"
+              :value="m.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="值班经理">
+          <el-input v-model="mergeForm.operator" placeholder="值班经理姓名" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="合并原因">
+          <el-input v-model="mergeForm.reason" type="textarea" :rows="2" maxlength="500" show-word-limit
+            placeholder="如：会员本人确认两张卡为同一人，申请合并到保留卡" />
+        </el-form-item>
+      </el-form>
+
+      <div v-if="preview" class="preview-box">
+        <el-alert
+          :title="preview.canMerge
+            ? '预演无互斥项，可确认合并（确认将严格按此预演执行）'
+            : `预演发现 ${preview.conflicts.length} 个互斥项，必须先处理，不能合并`"
+          :type="preview.canMerge ? 'success' : 'error'"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 10px"
+        />
+
+        <!-- 互斥项清单 -->
+        <div v-if="preview.conflicts.length" class="conflict-box">
+          <div class="section-title danger">互斥项清单（系统不会自行挑选覆盖）</div>
+          <el-table :data="preview.conflicts" size="small" border>
+            <el-table-column prop="typeName" label="互斥类型" width="170" />
+            <el-table-column prop="target" label="具体互斥项" min-width="220" />
+            <el-table-column prop="detail" label="处理要求" min-width="240" />
+          </el-table>
+        </div>
+
+        <!-- 两卡逐项对比 -->
+        <el-table :data="sideCompareRows" size="small" border class="cmp-table">
+          <el-table-column prop="label" label="核对项" width="150" />
+          <el-table-column label="保留档案（保留）" min-width="280">
+            <template #default="{ row }">
+              <span v-html="row.keep"></span>
+            </template>
+          </el-table-column>
+          <el-table-column label="来源档案（封存）" min-width="280">
+            <template #default="{ row }">
+              <span v-html="row.source"></span>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <!-- 合并结果 -->
+        <div v-if="preview.plan" class="plan-box">
+          <div class="section-title">合并结果预演</div>
+          <el-descriptions :column="3" size="small" border>
+            <el-descriptions-item label="保留卡余额">¥ {{ money(preview.plan.keepBalanceBefore) }}</el-descriptions-item>
+            <el-descriptions-item label="来源卡余额">¥ {{ money(preview.plan.sourceBalanceBefore) }}</el-descriptions-item>
+            <el-descriptions-item label="合并后余额">
+              <b class="ok">¥ {{ money(preview.plan.balanceAfter) }}</b>
+            </el-descriptions-item>
+            <el-descriptions-item label="保留卡累计消费">¥ {{ money(preview.plan.keepSpendBefore) }}</el-descriptions-item>
+            <el-descriptions-item label="来源卡累计消费">¥ {{ money(preview.plan.sourceSpendBefore) }}</el-descriptions-item>
+            <el-descriptions-item label="合并后累计消费">
+              <b class="ok">¥ {{ money(preview.plan.spendAfter) }}</b>
+            </el-descriptions-item>
+            <el-descriptions-item label="保留卡原等级">{{ preview.plan.keepLevelBeforeName }}</el-descriptions-item>
+            <el-descriptions-item label="按累计消费重算">{{ preview.plan.levelAfterName }}</el-descriptions-item>
+            <el-descriptions-item label="最终等级（不降级）">
+              <el-tag size="small" type="warning" effect="dark">{{ preview.plan.levelAfterName }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="报名迁移">
+              {{ preview.plan.enrollmentsToMigrate.length }} 条
+            </el-descriptions-item>
+            <el-descriptions-item label="重复报名去重">
+              <span :class="{ danger: preview.plan.duplicateEnrollments.length }">
+                {{ preview.plan.duplicateEnrollments.length }} 条（保留较早一条）
+              </span>
+            </el-descriptions-item>
+            <el-descriptions-item label="未结束回合迁移">
+              {{ preview.plan.openRoundsToMigrate.length }} 个
+            </el-descriptions-item>
+            <el-descriptions-item label="历史成绩迁移">
+              {{ preview.plan.historyRoundsToMigrate }} 个（箭值 / 完成时间不改写）
+            </el-descriptions-item>
+            <el-descriptions-item label="当前器材租借迁移">
+              {{ preview.plan.rentalsToMigrate.length }} 件
+            </el-descriptions-item>
+            <el-descriptions-item label="认证申请迁移">{{ preview.plan.certApplicationsToMigrate }} 笔（评定快照保留）</el-descriptions-item>
+          </el-descriptions>
+
+          <div v-if="preview.plan.duplicateEnrollments.length" class="sub-block">
+            <div class="section-title">重复报名去重明细（同一课程保留报名较早的一条）</div>
+            <el-table :data="preview.plan.duplicateEnrollments" size="small" border>
+              <el-table-column prop="courseName" label="课程" min-width="180" />
+              <el-table-column label="保留（较早）" width="220">
+                <template #default="{ row }">
+                  {{ row.keptCardNo }} · {{ fmtTime(row.keptEnrollTime) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="删除（较晚）" width="220">
+                <template #default="{ row }">
+                  <span class="danger">{{ row.droppedCardNo }} · {{ fmtTime(row.droppedEnrollTime) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="sub-block">
+            <div class="section-title">个人最好重新归组预演（迁移后按保留会员核对，仅改 PB 标记）</div>
+            <el-table :data="preview.plan.personalBestGroups" size="small" border max-height="220">
+              <el-table-column prop="groupLabel" label="可比组别（弓种 · 射距 · 箭数）" min-width="200" />
+              <el-table-column prop="roundCount" label="组内回合" width="80" />
+              <el-table-column label="最好回合" width="130">
+                <template #default="{ row }">
+                  {{ row.winnerRoundNo }}
+                  <el-tag size="small" :type="row.winnerSide === 'SOURCE' ? 'warning' : 'success'" effect="plain">
+                    {{ row.winnerSide === 'SOURCE' ? '来自来源卡' : '来自保留卡' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="winnerTotalScore" label="总分" width="70" />
+              <el-table-column label="完成时间" width="135">
+                <template #default="{ row }">{{ fmtTime(row.winnerCompletedAt) }}</template>
+              </el-table-column>
+            </el-table>
+            <div class="muted small">已完成回合、认证历史与个人最好标记均保留原始内容迁移；箭值、完成时间、认证规则快照不会被改写。</div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="mergeVisible = false">取消</el-button>
+        <el-button :loading="previewLoading" @click="doPreview">
+          {{ preview ? '重新预演' : '生成合并预演' }}
+        </el-button>
+        <el-popconfirm
+          v-if="preview && preview.canMerge"
+          title="确认按当前预演合并？来源卡将立即封存，不可撤销"
+          confirm-button-text="确认合并"
+          cancel-button-text="再想想"
+          @confirm="doConfirm"
+        >
+          <template #reference>
+            <el-button type="danger" :loading="confirmLoading">确认合并</el-button>
+          </template>
+        </el-popconfirm>
+      </template>
+    </el-dialog>
+
+    <!-- ============ 已封存卡：合并去向（旧卡入口跳转） ============ -->
+    <el-dialog v-model="redirectVisible" title="旧卡号入口 · 已合并封存" width="520px">
+      <div v-if="redirect" class="redirect-box">
+        <el-alert
+          :title="`卡号 ${redirect.cardNo}（${redirect.name}）是已封存的历史档案`"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 12px"
+        />
+        <el-descriptions :column="1" size="small" border>
+          <el-descriptions-item label="合并时间">{{ fmtTime(redirect.mergedAt) }}</el-descriptions-item>
+          <el-descriptions-item label="操作经理">{{ redirect.mergedBy || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="合并原因">{{ redirect.mergeReason || '—' }}</el-descriptions-item>
+          <el-descriptions-item v-if="redirect.redirectCardNo" label="请使用保留档案">
+            <el-link type="primary" @click="goRedirectMember">
+              {{ redirect.redirectCardNo }}（{{ redirect.redirectName }}）→ 打开保留档案
+            </el-link>
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+    </el-dialog>
+
+    <!-- ============ 合并轨迹 ============ -->
+    <el-dialog v-model="trailVisible" :title="`合并轨迹 · ${trailMember ? trailMember.name : ''}`" width="780px">
+      <div v-loading="trailLoading">
+        <el-empty v-if="!trailList.length" description="该会员暂无合并记录" :image-size="60" />
+        <el-timeline v-else>
+          <el-timeline-item
+            v-for="item in trailList"
+            :key="item.mergeId"
+            :type="trailTagType(item.status)"
+            :timestamp="`预演 ${fmtTime(item.previewedAt)}${item.confirmedAt ? ' ｜ 确认 ' + fmtTime(item.confirmedAt) : ''}`"
+          >
+            <div class="trail-head">
+              <el-tag size="small" :type="trailTagType(item.status)" effect="dark">{{ item.statusName }}</el-tag>
+              <b>合并单 {{ item.mergeNo }}</b>
+            </div>
+            <div class="muted small">
+              保留卡 {{ item.keepCardNo }}（{{ item.keepName }}）＋ 来源卡 {{ item.sourceCardNo }}（{{ item.sourceName }}）
+            </div>
+            <div class="muted small">原因：{{ item.reason }}</div>
+            <div class="muted small">预演：{{ item.previewOperator }} ｜ 确认：{{ item.confirmedBy || '—' }}</div>
+            <el-button link type="primary" @click="openMergeDetail(item.mergeId)">查看预演差异与处理明细</el-button>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
+    </el-dialog>
+
+    <!-- 合并单详情（预演快照 + 轨迹日志） -->
+    <el-dialog v-model="detailVisible" title="合并单详情 · 预演快照与操作日志" width="860px">
+      <div v-if="mergeDetail">
+        <el-descriptions :column="2" size="small" border style="margin-bottom: 10px">
+          <el-descriptions-item label="合并单号">{{ mergeDetail.summary.mergeNo }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag size="small" :type="trailTagType(mergeDetail.summary.status)" effect="dark">
+              {{ mergeDetail.summary.statusName }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="保留卡">
+            {{ mergeDetail.summary.keepCardNo }}（{{ mergeDetail.summary.keepName }}）
+          </el-descriptions-item>
+          <el-descriptions-item label="来源卡">
+            {{ mergeDetail.summary.sourceCardNo }}（{{ mergeDetail.summary.sourceName }}）
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-timeline>
+          <el-timeline-item
+            v-for="log in mergeDetail.logs"
+            :key="log.id"
+            :timestamp="fmtTime(log.createdAt)"
+            placement="top"
+          >
+            <b>{{ log.actionName }}</b> · {{ log.operator }}
+            <div class="muted small">{{ log.detail }}</div>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
     </el-dialog>
 
     <!-- 个人最好：按可比组别（弓种 + 射距 + 箭数）各自独立，每组至多一条 -->
@@ -191,9 +462,9 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { certApi, memberApi, money, roundApi, shortDate, shortTime } from '../api'
+import { certApi, memberApi, mergeApi, money, roundApi, shortDate, shortTime } from '../api'
 
 const members = ref([])
 const createVisible = ref(false)
@@ -213,6 +484,69 @@ const bestsPick = ref(null)
 const bestsData = ref({ groups: [] })
 const bestDetail = ref(null)
 
+// 旧卡号进入
+const cardEntryNo = ref('')
+
+// 合并预演
+const mergeVisible = ref(false)
+const previewLoading = ref(false)
+const confirmLoading = ref(false)
+const mergeForm = reactive({ keep: null, sourceId: null, operator: '', reason: '' })
+const preview = ref(null)
+
+// 封存卡跳转
+const redirectVisible = ref(false)
+const redirect = ref(null)
+
+// 合并轨迹
+const trailVisible = ref(false)
+const trailLoading = ref(false)
+const trailMember = ref(null)
+const trailList = ref([])
+const detailVisible = ref(false)
+const mergeDetail = ref(null)
+
+const mergeCandidates = computed(() =>
+  members.value.filter((m) => m.status !== 'MERGED' && (!mergeForm.keep || m.id !== mergeForm.keep.id)))
+
+const sideCompareRows = computed(() => {
+  if (!preview.value) return []
+  const k = preview.value.keep
+  const s = preview.value.source
+  const money2 = (v) => `¥ ${money(v)}`
+  const enrollText = (list) => list.length
+    ? list.map((e) => `${e.courseName}（${fmtTime(e.enrollTime)}）`).join('<br/>')
+    : '<span class="muted">无</span>'
+  const openText = (list) => list.length
+    ? list.map((r) => `${r.roundNo} · ${r.laneNo} · ${r.bowTypeName} · ${r.statusName}`).join('<br/>')
+    : '<span class="muted">无</span>'
+  const historyText = (list) => list.length
+    ? list.map((r) => `${r.roundNo} · ${r.bowTypeName}${r.distance ? ' ' + r.distance + '米' : ''} · ${r.arrowCount}支 · ${r.totalScore}分${r.personalBest ? ' 🏅PB' : ''}`).join('<br/>')
+    : '<span class="muted">无</span>'
+  const rentText = (list) => list.length
+    ? list.map((r) => `${r.equipCode} · ${r.typeName} · ${r.brand}（${fmtTime(r.rentedAt)}）`).join('<br/>')
+    : '<span class="muted">无在租器材</span>'
+  const certAppText = (list) => list.length
+    ? list.map((c) => `${c.appNo} · ${c.bowTypeName} ${c.distance}米 · ${c.displayStatusName}`).join('<br/>')
+    : '<span class="muted">无</span>'
+  const validCertText = (list) => list.length
+    ? list.map((c) => `${c.bowTypeName} ${c.distance}米 · ${c.appNo}（至 ${shortDate(c.validUntil)}）`).join('<br/>')
+    : '<span class="muted">无有效认证</span>'
+  return [
+    { label: '余额', keep: money2(k.balance), source: money2(s.balance) },
+    { label: '累计消费', keep: money2(k.totalSpend), source: money2(s.totalSpend) },
+    { label: '等级', keep: k.levelName, source: s.levelName },
+    { label: '课程报名', keep: enrollText(k.enrollments), source: enrollText(s.enrollments) },
+    { label: '未结束计分回合', keep: openText(k.openRounds), source: openText(s.openRounds) },
+    { label: '历史成绩（已完成）', keep: historyText(k.historyRounds), source: historyText(s.historyRounds) },
+    { label: '当前器材租借', keep: rentText(k.rentals), source: rentText(s.rentals) },
+    { label: '认证申请', keep: certAppText(k.certApplications), source: certAppText(s.certApplications) },
+    { label: '有效认证', keep: validCertText(k.validCerts), source: validCertText(s.validCerts) }
+  ]
+})
+
+const fmtTime = (value) => (value ? String(value).slice(5, 16) : '')
+
 function levelType(level) {
   if (level === 'GOLD') return 'warning'
   if (level === 'SILVER') return 'info'
@@ -227,11 +561,19 @@ function certStatusType(status) {
     NEED_MORE: 'warning',
     WITHDRAWN: 'info',
     SUPERSEDED: 'info',
-    EXPIRED: 'info'
+    EXPIRED: 'info',
+    CONFIRMED: 'success',
+    PREVIEWED: 'warning',
+    STALE: 'info',
+    SUPERSEDED_STATUS: 'info'
   }[status] || 'info'
 }
 
-const fmtTime = (value) => (value ? String(value).slice(0, 16) : '')
+function trailTagType(status) {
+  if (status === 'CONFIRMED') return 'success'
+  if (status === 'PREVIEWED') return 'warning'
+  return 'info'
+}
 
 async function loadMembers() {
   members.value = await memberApi.list()
@@ -291,6 +633,116 @@ async function submitCreate() {
   createForm.name = ''
   createForm.phone = ''
   await loadMembers()
+}
+
+// ---------- 旧卡号进入 ----------
+async function enterByCard() {
+  if (!cardEntryNo.value.trim()) return
+  const entry = await mergeApi.byCard(cardEntryNo.value.trim())
+  if (!entry.merged) {
+    ElMessage.success(`卡号 ${entry.cardNo} 为正常档案：${entry.name}`)
+    return
+  }
+  redirect.value = entry
+  redirectVisible.value = true
+}
+
+async function goRedirectMember() {
+  redirectVisible.value = false
+  if (redirect.value.redirectMemberId) {
+    await loadMembers()
+    const row = members.value.find((m) => m.id === redirect.value.redirectMemberId)
+    if (row) {
+      ElMessage.success(`已跳转到保留档案 ${row.cardNo}（${row.name}）`)
+      openMergeTrail(row)
+    }
+  }
+}
+
+function openMergedRedirect(row) {
+  const target = members.value.find((x) => x.id === row.mergedIntoId)
+  redirect.value = {
+    cardNo: row.cardNo,
+    name: row.name,
+    mergedAt: row.mergedAt,
+    mergedBy: row.mergedBy,
+    mergeReason: row.mergeReason,
+    redirectMemberId: row.mergedIntoId,
+    redirectCardNo: target ? target.cardNo : '',
+    redirectName: target ? target.name : ''
+  }
+  redirectVisible.value = true
+}
+
+// ---------- 重复档案合并 ----------
+function startMerge(row) {
+  mergeForm.keep = row
+  mergeForm.sourceId = null
+  mergeForm.reason = ''
+  preview.value = null
+  mergeVisible.value = true
+}
+
+async function doPreview() {
+  if (!mergeForm.sourceId) {
+    ElMessage.warning('请先选择来源档案')
+    return
+  }
+  if (!mergeForm.operator.trim() || !mergeForm.reason.trim()) {
+    ElMessage.warning('请填写值班经理与合并原因')
+    return
+  }
+  previewLoading.value = true
+  try {
+    preview.value = await mergeApi.preview({
+      keepMemberId: mergeForm.keep.id,
+      sourceMemberId: mergeForm.sourceId,
+      reason: mergeForm.reason.trim(),
+      operator: mergeForm.operator.trim(),
+      role: 'MANAGER'
+    })
+    ElMessage.success(preview.value.canMerge ? '预演完成：无互斥项，可确认合并' : '预演完成：存在互斥项，暂不能合并')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function doConfirm() {
+  if (!preview.value) return
+  confirmLoading.value = true
+  try {
+    const result = await mergeApi.confirm({
+      mergeId: preview.value.mergeId,
+      operator: mergeForm.operator.trim(),
+      role: 'MANAGER'
+    })
+    ElMessage.success('合并完成，来源卡已封存')
+    mergeVisible.value = false
+    preview.value = null
+    await loadMembers()
+    mergeDetail.value = result
+    detailVisible.value = true
+  } finally {
+    confirmLoading.value = false
+  }
+}
+
+// ---------- 合并轨迹（普通会员只读，自己的合并结果也在这里查看） ----------
+async function openMergeTrail(row) {
+  trailMember.value = row
+  trailList.value = []
+  trailVisible.value = true
+  trailLoading.value = true
+  try {
+    trailList.value = await mergeApi.memberMerges(row.id)
+  } finally {
+    trailLoading.value = false
+  }
+}
+
+async function openMergeDetail(mergeId) {
+  mergeDetail.value = await mergeApi.detail(mergeId)
+  detailVisible.value = true
 }
 
 onMounted(loadMembers)
@@ -380,6 +832,66 @@ onMounted(loadMembers)
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.muted {
+  color: var(--ink-mute);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.danger {
+  color: #c62828;
+}
+
+.ok {
+  color: #1b8a5a;
+}
+
+.preview-box {
+  margin-top: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.conflict-box {
+  margin-bottom: 12px;
+}
+
+.cmp-table :deep(.cell) {
+  line-height: 1.7;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 10px 0 6px;
+}
+
+.section-title.danger {
+  color: #c62828;
+}
+
+.plan-box {
+  margin-top: 10px;
+}
+
+.sub-block {
+  margin-top: 12px;
+}
+
+.redirect-box {
+  font-size: 13px;
+}
+
+.trail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 2px;
 }
 </style>

@@ -19,17 +19,23 @@ CREATE TABLE IF NOT EXISTS lanes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS members (
-  id            BIGINT       NOT NULL AUTO_INCREMENT,
-  card_no       VARCHAR(24)  NOT NULL COMMENT '会员卡号',
-  name          VARCHAR(32)  NOT NULL,
-  phone         VARCHAR(20)  NOT NULL,
-  level         VARCHAR(16)  NOT NULL COMMENT 'NORMAL 普通 / SILVER 银 / GOLD 金',
-  balance       DECIMAL(10,2) NOT NULL COMMENT '余额',
-  register_date DATE         NOT NULL COMMENT '注册日期',
-  total_spend   DECIMAL(12,2) NOT NULL COMMENT '累计消费',
+  id             BIGINT       NOT NULL AUTO_INCREMENT,
+  card_no        VARCHAR(24)  NOT NULL COMMENT '会员卡号',
+  name           VARCHAR(32)  NOT NULL,
+  phone          VARCHAR(20)  NOT NULL,
+  level          VARCHAR(16)  NOT NULL COMMENT 'NORMAL 普通 / SILVER 银 / GOLD 金',
+  balance        DECIMAL(10,2) NOT NULL COMMENT '余额',
+  register_date  DATE         NOT NULL COMMENT '注册日期',
+  total_spend    DECIMAL(12,2) NOT NULL COMMENT '累计消费',
+  status         VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE 正常可用 / MERGED 已合并封存（历史档案，不可再用）',
+  merged_into_id BIGINT       NULL COMMENT '合并后跳转的保留档案 id',
+  merged_at      DATETIME     NULL COMMENT '合并封存时间',
+  merged_by      VARCHAR(32)  NULL COMMENT '执行合并的值班经理',
+  merge_reason   VARCHAR(500) NULL COMMENT '合并原因（从旧卡进入时展示）',
   PRIMARY KEY (id),
   UNIQUE KEY uk_card_no (card_no),
-  UNIQUE KEY uk_phone (phone)
+  UNIQUE KEY uk_phone (phone),
+  KEY idx_members_merged_into (merged_into_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS rounds (
@@ -780,3 +786,42 @@ INSERT INTO cert_log (`id`, `application_id`, `action`, `operator`, `role`, `det
 INSERT INTO cert_log (`id`, `application_id`, `action`, `operator`, `role`, `detail`, `created_at`) VALUES (8, 3, 'EVAL', '认证系统', 'SYSTEM', '系统预评达标：1 回合 12 支箭平均 9.33 环（标准 ≥8.00），提交复核', '2026-09-17 09:00:00');
 INSERT INTO cert_log (`id`, `application_id`, `action`, `operator`, `role`, `detail`, `created_at`) VALUES (9, 3, 'APPROVE', '王铮', 'COACH', '复核通过：认证 2026-09-17 生效，有效期至 2027-09-17；适用范围：复合弓 30 米及以内射距', '2026-09-17 09:30:00');
 INSERT INTO cert_log (`id`, `application_id`, `action`, `operator`, `role`, `detail`, `created_at`) VALUES (10, 3, 'WITHDRAW', '王铮', 'COACH', '撤回认证：抽查发现证据窗口与实际训练记录不符，撤回并要求重新评定', '2026-09-25 15:00:00');
+
+-- ================= 模块九：重复会员档案合并 =================
+-- 合并单：值班经理先做合并预演（PREVIEWED），确认必须以预演版本为依据（指纹匹配）。
+-- 状态机：PREVIEWED 预演完成待确认 → CONFIRMED 已执行 / SUPERSEDED 已被新预演取代 / STALE 预演后数据已变化。
+-- 来源档案封存后不可充值、开台、报名、租借、开始新回合；旧卡号进入时按 merged_into_id 跳转保留档案。
+CREATE TABLE IF NOT EXISTS member_merge (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT,
+  merge_no           VARCHAR(24)  NOT NULL COMMENT '合并单号',
+  keep_member_id     BIGINT       NOT NULL COMMENT '保留档案 id',
+  source_member_id   BIGINT       NOT NULL COMMENT '来源（被封存）档案 id',
+  reason             VARCHAR(500) NOT NULL COMMENT '合并原因',
+  status             VARCHAR(16)  NOT NULL COMMENT 'PREVIEWED / CONFIRMED / SUPERSEDED / STALE',
+  preview_operator   VARCHAR(32)  NOT NULL COMMENT '预演操作人（值班经理）',
+  previewed_at       DATETIME     NOT NULL,
+  confirmed_by       VARCHAR(32)  NULL COMMENT '确认合并的值班经理',
+  confirmed_at       DATETIME     NULL,
+  keep_fingerprint   TEXT         NOT NULL COMMENT '预演时保留档案的数据指纹（确认时必须一致）',
+  source_fingerprint TEXT         NOT NULL COMMENT '预演时来源档案的数据指纹（确认时必须一致）',
+  snapshot           TEXT         NOT NULL COMMENT '预演完整结果快照（JSON，确认依据与回显）',
+  conflicts          TEXT         NULL COMMENT '预演互斥项清单（JSON）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_member_merge_no (merge_no),
+  KEY idx_merge_keep (keep_member_id),
+  KEY idx_merge_source (source_member_id),
+  KEY idx_merge_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 合并轨迹：预演生成、预演被取代 / 失效、确认成功全程留痕；
+-- 确认成功时把迁移明细（各业务关系迁移条数、去重报名、PB 重归组等）一并记下，普通会员可查看自己的结果。
+CREATE TABLE IF NOT EXISTS member_merge_log (
+  id         BIGINT       NOT NULL AUTO_INCREMENT,
+  merge_id   BIGINT       NOT NULL,
+  action     VARCHAR(24)  NOT NULL COMMENT 'PREVIEW 合并预演 / SUPERSEDE 被新预演取代 / STALE 预演后数据变化 / CONFIRM 确认合并',
+  operator   VARCHAR(32)  NOT NULL COMMENT '操作人（值班经理；系统置失效记 系统）',
+  detail     VARCHAR(500) NULL,
+  created_at DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_merge_log_merge (merge_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

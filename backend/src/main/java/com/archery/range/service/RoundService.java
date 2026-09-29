@@ -72,6 +72,10 @@ public class RoundService {
     public RoundDtos.RoundDetailView start(RoundDtos.RoundStartReq req) {
         Member member = memberRepository.findById(req.memberId())
                 .orElseThrow(() -> new BizException("会员不存在：id=" + req.memberId()));
+        if (com.archery.range.domain.Member.STATUS_MERGED.equals(member.getStatus())) {
+            throw new BizException("会员卡号 [" + member.getCardNo() + "]（" + member.getName()
+                    + "）已于档案合并后封存，不能开始新回合");
+        }
         Lane lane = laneRepository.findByIdForUpdate(req.laneId())
                 .orElseThrow(() -> new BizException("箭道不存在：id=" + req.laneId()));
         if ("LOCKED".equals(lane.getStatus())) {

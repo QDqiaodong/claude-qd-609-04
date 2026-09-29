@@ -80,7 +80,7 @@ public class LaneService {
         if (req.hours() == null || req.hours() < 1 || req.hours() > RangeDict.MAX_OPEN_HOURS) {
             throw new BizException("开台时长需在 1 ~ " + RangeDict.MAX_OPEN_HOURS + " 小时之间");
         }
-        Member member = memberService.require(req.memberId());
+        Member member = memberService.requireActive(req.memberId());
         // 30 / 50 米为认证射距：必须持有覆盖该射距的当前有效弓种认证（过期 / 撤回 / 被取代立即失效）
         certService.requireDistanceCert(member, lane.getDistance());
         BigDecimal cost = lane.getHourlyPrice()
