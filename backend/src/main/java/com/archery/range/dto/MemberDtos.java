@@ -2,6 +2,7 @@ package com.archery.range.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -42,6 +43,15 @@ public final class MemberDtos {
             Long roundCount,
             /** 当前持有的个人最好条数（按可比组别：弓种 + 射距 + 箭数，每组至多一条） */
             Integer bestGroupCount,
-            Integer validCertCount) {
+            Integer validCertCount,
+            /** ACTIVE 在用 / MERGED 已合并封存（历史档案，不可继续使用） */
+            String status,
+            String statusName,
+            /** 封存时合并去向的保留会员 id / 卡号（旧卡入口跳转） */
+            Long mergedIntoId,
+            String mergedIntoCardNo,
+            LocalDateTime mergedAt,
+            String mergeReason,
+            String mergedBy) {
     }
 }

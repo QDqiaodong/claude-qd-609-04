@@ -81,6 +81,8 @@ public class LaneService {
             throw new BizException("开台时长需在 1 ~ " + RangeDict.MAX_OPEN_HOURS + " 小时之间");
         }
         Member member = memberService.require(req.memberId());
+        // 已合并封存的来源档案不能再开台（旧卡入口应跳转到保留档案）
+        memberService.rejectIfMerged(member, "开台");
         // 30 / 50 米为认证射距：必须持有覆盖该射距的当前有效弓种认证（过期 / 撤回 / 被取代立即失效）
         certService.requireDistanceCert(member, lane.getDistance());
         BigDecimal cost = lane.getHourlyPrice()

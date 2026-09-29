@@ -71,6 +71,8 @@ public class EquipmentService {
                     + RangeDict.equipStatusName(equipment.getStatus()) + "」，不能租借");
         }
         Member member = memberService.require(req.memberId());
+        // 已合并封存的来源档案不能再租借器材
+        memberService.rejectIfMerged(member, "租借器材");
         // 租借弓类器材必须持有该弓种的当前有效认证（护具 / 箭支不限制）
         certService.requireBowCert(member, equipment.getType());
         memberService.charge(member, equipment.getRentPrice(), "租借 " + equipment.getEquipCode());

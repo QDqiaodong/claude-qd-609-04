@@ -20,16 +20,100 @@ CREATE TABLE IF NOT EXISTS lanes (
 
 CREATE TABLE IF NOT EXISTS members (
   id            BIGINT       NOT NULL AUTO_INCREMENT,
-  card_no       VARCHAR(24)  NOT NULL COMMENT '会员卡号',
+  card_no       VARCHAR(24)  NOT NULL COMMENT '会员卡号（封存档案保留原卡号可查）',
   name          VARCHAR(32)  NOT NULL,
   phone         VARCHAR(20)  NOT NULL,
   level         VARCHAR(16)  NOT NULL COMMENT 'NORMAL 普通 / SILVER 银 / GOLD 金',
   balance       DECIMAL(10,2) NOT NULL COMMENT '余额',
   register_date DATE         NOT NULL COMMENT '注册日期',
   total_spend   DECIMAL(12,2) NOT NULL COMMENT '累计消费',
+  status        VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE 在用 / MERGED 已合并封存（历史档案，不可继续使用）',
+  merged_into_id BIGINT      NULL COMMENT '封存时合并去向的保留会员 id（不加外键，避免与合并流程相互锁定）',
+  merged_at     DATETIME     NULL COMMENT '合并封存时间',
+  merge_reason  VARCHAR(500) NULL COMMENT '合并原因（值班经理填写）',
+  merged_by     VARCHAR(32)  NULL COMMENT '执行合并的值班经理',
   PRIMARY KEY (id),
   UNIQUE KEY uk_card_no (card_no),
-  UNIQUE KEY uk_phone (phone)
+  UNIQUE KEY uk_phone (phone),
+  KEY idx_members_status (status),
+  KEY idx_members_merged_into (merged_into_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ================= 模块九：重复会员档案合并 =================
+-- 器材租借影子记录：同一件器材在历史误操作中分别挂在两张会员卡名下的异常登记。
+-- 正常业务（租借 / 归还）不写本表；合并预演用它与正式租约取交集，识别「双方租出同一件器材」的互斥。
+CREATE TABLE IF NOT EXISTS merge_equipment_rent_shadow (
+  id           BIGINT       NOT NULL AUTO_INCREMENT,
+  equipment_id BIGINT       NOT NULL,
+  equip_code   VARCHAR(24)  NOT NULL,
+  type         VARCHAR(16)  NOT NULL,
+  brand        VARCHAR(32)  NOT NULL,
+  renter_id    BIGINT       NOT NULL,
+  rented_at    DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_merge_equip_shadow_renter (renter_id),
+  KEY idx_merge_equip_shadow_equip (equipment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 合并预演：值班经理选定保留档案 + 来源档案后生成，确认必须以预演版本为依据。
+-- 状态机 PREVIEWED 待确认 → CONSUMED 已用于成功合并（一次性）；
+-- 任一端确认成功即原子转为 CONSUMED，另一端凭同一版本确认会被拒绝并看到去向。
+CREATE TABLE IF NOT EXISTS member_merge_preview (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  preview_no       VARCHAR(24)  NOT NULL COMMENT '预演版本号',
+  keep_member_id   BIGINT       NOT NULL COMMENT '保留档案会员',
+  source_member_id BIGINT       NOT NULL COMMENT '来源档案会员（合并后封存）',
+  operator         VARCHAR(32)  NOT NULL COMMENT '发起预演的值班经理',
+  reason           VARCHAR(500) NOT NULL COMMENT '合并原因',
+  status           VARCHAR(16)  NOT NULL COMMENT 'PREVIEWED 待确认 / CONSUMED 已用于合并 / SUPERSEDED 已被新预演取代',
+  -- 预演时刻两侧业务数据指纹：确认时重算比对，余额 / 报名 / 回合 / 租借 / 认证任一变化即拒绝
+  keep_fingerprint   VARCHAR(64) NOT NULL,
+  source_fingerprint VARCHAR(64) NOT NULL,
+  -- 预演结论快照（互斥项 / 去重项 / 合并后金额等级），确认时回显，不落空
+  snapshot_json    TEXT         NOT NULL,
+  created_at       DATETIME     NOT NULL,
+  consumed_at      DATETIME     NULL,
+  consumed_by      VARCHAR(32)  NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_merge_preview_no (preview_no),
+  KEY idx_merge_preview_source (source_member_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 合并轨迹：成功合并一条，记录操作者、原因、两侧原卡号 / 原姓名 / 合并前余额与累计消费、
+-- 迁移与去重明细，供会员列表 / 详情页与会员本人查询（只能查看，不能撤销）。
+CREATE TABLE IF NOT EXISTS member_merge_log (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  merge_no         VARCHAR(24)  NOT NULL COMMENT '合并单号',
+  preview_id       BIGINT       NOT NULL COMMENT '所依据的预演版本 id',
+  keep_member_id   BIGINT       NOT NULL,
+  source_member_id BIGINT       NOT NULL COMMENT '来源档案仍保留在 members 表（status=MERGED），不删除',
+  keep_card_no     VARCHAR(24)  NOT NULL COMMENT '保留卡号',
+  source_card_no   VARCHAR(24)  NOT NULL COMMENT '来源原卡号（留存可查）',
+  keep_name        VARCHAR(32)  NOT NULL,
+  source_name      VARCHAR(32)  NOT NULL COMMENT '来源原姓名（留存可查）',
+  keep_balance_before   DECIMAL(10,2) NOT NULL,
+  source_balance_before DECIMAL(10,2) NOT NULL,
+  keep_spend_before     DECIMAL(12,2) NOT NULL,
+  source_spend_before   DECIMAL(12,2) NOT NULL,
+  balance_after    DECIMAL(10,2) NOT NULL,
+  total_spend_after DECIMAL(12,2) NOT NULL,
+  level_before     VARCHAR(16)  NOT NULL,
+  level_after      VARCHAR(16)  NOT NULL,
+  rounds_moved     INT          NOT NULL DEFAULT 0 COMMENT '迁移计分回合数（箭值 / 完成时间原样保留）',
+  enrollments_moved INT         NOT NULL DEFAULT 0 COMMENT '迁移课程报名条数',
+  enrollments_dropped INT       NOT NULL DEFAULT 0 COMMENT '同一课程重复报名去重条数（保留较早一条）',
+  equipment_moved  INT          NOT NULL DEFAULT 0 COMMENT '迁移当前器材租借数',
+  lanes_moved      INT          NOT NULL DEFAULT 0 COMMENT '迁移占用箭道数',
+  certs_moved      INT          NOT NULL DEFAULT 0 COMMENT '迁移认证申请 / 有效认证数',
+  tournament_moved INT          NOT NULL DEFAULT 0 COMMENT '迁移赛事队员 / 箭值数',
+  detail_json      TEXT         NULL COMMENT '逐项迁移 / 去重明细',
+  reason           VARCHAR(500) NOT NULL,
+  operator         VARCHAR(32)  NOT NULL COMMENT '合并操作者（值班经理，留存可查）',
+  merged_at        DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_merge_log_no (merge_no),
+  KEY idx_merge_log_keep (keep_member_id),
+  KEY idx_merge_log_source (source_member_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS rounds (

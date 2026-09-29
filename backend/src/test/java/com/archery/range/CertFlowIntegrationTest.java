@@ -160,8 +160,11 @@ class CertFlowIntegrationTest {
         assertThatThrownBy(() -> certService.createApplication(retiredRule))
                 .isInstanceOf(BizException.class).hasMessageContaining("已停用");
 
-        // 一条申请都没有建成
-        assertThat(certService.listApplications(null, null)).hasSize(3);
+        // 一条申请都没有建成：只统计种子申请（C 开头），与其他测试类在共享内存库中新建的数据隔离
+        long seedApps = certService.listApplications(null, null).stream()
+                .filter(a -> a.appNo().startsWith("C"))
+                .count();
+        assertThat(seedApps).isEqualTo(3);
     }
 
     // ---------- 4. 完整流程：建立（预评达标）→ 通过 → 入口放行 → 新版本不影响历史快照 ----------

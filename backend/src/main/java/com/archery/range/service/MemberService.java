@@ -33,12 +33,27 @@ public class MemberService {
 
     @Transactional(readOnly = true)
     public List<MemberDtos.MemberView> list() {
-        return memberRepository.findAllByOrderByIdAsc().stream().map(this::toView).toList();
+        // 会员列表默认只列在用档案；已合并封存的历史档案通过 includeMerged 或专门入口查看
+        return list(true, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<MemberDtos.MemberView> list(boolean activeOnly, boolean mergedOnly) {
+        List<Member> members;
+        if (mergedOnly) {
+            members = memberRepository.findAllByStatusOrderByIdAsc(Member.STATUS_MERGED);
+        } else if (activeOnly) {
+            members = memberRepository.findByStatusOrderByIdAsc(Member.STATUS_ACTIVE);
+        } else {
+            members = memberRepository.findAllByOrderByIdAsc();
+        }
+        return members.stream().map(this::toView).toList();
     }
 
     @Transactional(readOnly = true)
     public List<MemberDtos.MemberView> listByLevel(String level) {
-        return memberRepository.findByLevelOrderByIdAsc(level).stream().map(this::toView).toList();
+        return memberRepository.findByLevelAndStatusOrderByIdAsc(level, Member.STATUS_ACTIVE).stream()
+                .map(this::toView).toList();
     }
 
     @Transactional(readOnly = true)
@@ -75,8 +90,30 @@ public class MemberService {
             throw new BizException("单次充值金额需在 100 ~ 10000 元之间");
         }
         Member member = require(id);
+        rejectIfMerged(member, "充值");
         member.setBalance(member.getBalance().add(amount).setScale(2, RoundingMode.HALF_UP));
         return toView(memberRepository.save(member));
+    }
+
+    /**
+     * 已合并封存的来源档案不能再发生任何业务动作。
+     * 充值 / 开台 / 报名 / 租借 / 开始新回合等写入口在拿到会员后统一调用本方法拦截。
+     */
+    public void rejectIfMerged(Member member, String action) {
+        if (member != null && Member.STATUS_MERGED.equals(member.getStatus())) {
+            String target = member.getMergedIntoId() == null ? ""
+                    : "，请使用保留档案 " + mergedTargetCard(member.getMergedIntoId());
+            throw new BizException("会员卡 [" + member.getCardNo() + "] 已于 "
+                    + (member.getMergedAt() == null ? "" : member.getMergedAt().toLocalDate())
+                    + " 合并封存（原因：" + (member.getMergeReason() == null ? "" : member.getMergeReason())
+                    + "），不能再" + action + target);
+        }
+    }
+
+    private String mergedTargetCard(Long targetId) {
+        return memberRepository.findById(targetId)
+                .map(m -> m.getCardNo() + "（" + m.getName() + "）")
+                .orElse("id=" + targetId);
     }
 
     /**
@@ -120,6 +157,12 @@ public class MemberService {
                 .findByMemberIdAndStatusAndValidUntilGreaterThanEqualOrderByValidUntilDesc(
                         member.getId(), "APPROVED", LocalDateTime.now())
                 .size();
+        String mergedIntoCardNo = null;
+        if (member.getMergedIntoId() != null) {
+            mergedIntoCardNo = memberRepository.findById(member.getMergedIntoId())
+                    .map(Member::getCardNo).orElse(null);
+        }
+        boolean merged = Member.STATUS_MERGED.equals(member.getStatus());
         return new MemberDtos.MemberView(
                 member.getId(),
                 member.getCardNo(),
@@ -133,6 +176,13 @@ public class MemberService {
                 RangeDict.memberDiscount(member.getLevel()),
                 roundRepository.countByMemberId(member.getId()),
                 bestGroups.size(),
-                validCertCount);
+                validCertCount,
+                member.getStatus(),
+                merged ? "已合并封存" : "在用",
+                member.getMergedIntoId(),
+                mergedIntoCardNo,
+                member.getMergedAt(),
+                member.getMergeReason(),
+                member.getMergedBy());
     }
 }

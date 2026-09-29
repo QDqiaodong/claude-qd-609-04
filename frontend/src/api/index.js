@@ -44,6 +44,15 @@ export const memberApi = {
   recharge: (id, amount) => http.post(`/members/${id}/recharge`, { amount })
 }
 
+/** 模块九：重复会员档案合并（预演 → 确认 → 轨迹 → 旧卡入口跳转） */
+export const mergeApi = {
+  preview: (data) => http.post('/member-merges/preview', data),
+  previewDetail: (id) => http.get(`/member-merges/preview/${id}`),
+  confirm: (data) => http.post('/member-merges/confirm', data),
+  trails: (memberId) => http.get(`/member-merges/trails/${memberId}`),
+  lookup: (cardNo) => http.get('/member-merges/lookup', { params: { cardNo } })
+}
+
 /** 模块三：计分回合（有序集合：每支箭按 shot_index 顺序 append） */
 export const roundApi = {
   list: (params) => http.get('/rounds', { params }),

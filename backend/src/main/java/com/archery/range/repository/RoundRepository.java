@@ -48,4 +48,13 @@ public interface RoundRepository extends JpaRepository<Round, Long> {
     @Modifying
     @Query("update Round r set r.personalBest = false where r.id in :ids and r.personalBest = true")
     int clearPersonalBest(@Param("ids") List<Long> ids);
+
+    /**
+     * 重复档案合并：把来源会员的全部计分回合迁移到保留会员名下。
+     * 只改 member_id 关联，箭值、总分、完成时间、弓种等原始内容一律不动。
+     * 必须原生 SQL：JPQL 关联路径批量更新（set r.member.id）会被 Hibernate 错误翻译成更新主键。
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "update rounds set member_id = :keepId where member_id = :sourceId", nativeQuery = true)
+    int reassignMember(@Param("sourceId") Long sourceId, @Param("keepId") Long keepId);
 }

@@ -87,4 +87,13 @@ public interface CertApplicationRepository extends JpaRepository<CertApplication
     int resubmitIfNeedMore(@Param("id") Long id,
             @Param("windowStart") LocalDateTime windowStart,
             @Param("windowEnd") LocalDateTime windowEnd);
+
+    /**
+     * 重复档案合并：来源会员的全部认证申请（含有效认证与历史记录）迁移到保留会员名下。
+     * 申请状态、规则快照、有效期、评定记录与认证日志一律不改写。
+     * 原生 SQL，避免 JPQL 关联路径批量更新被 Hibernate 误译为更新主键。
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "update cert_application set member_id = :keepId where member_id = :sourceId", nativeQuery = true)
+    int reassignMember(@Param("sourceId") Long sourceId, @Param("keepId") Long keepId);
 }

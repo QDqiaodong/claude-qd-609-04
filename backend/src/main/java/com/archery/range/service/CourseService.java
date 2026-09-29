@@ -64,6 +64,8 @@ public class CourseService {
     public CourseDtos.CourseView enroll(Long id, CourseDtos.EnrollReq req) {
         Course course = require(id);
         Member member = memberService.require(req.memberId());
+        // 已合并封存的来源档案不能再报名
+        memberService.rejectIfMerged(member, "报名课程");
         if (course.getEnrolled() >= course.getCapacity()) {
             throw new BizException("课程 [" + course.getCourseName() + "] 已报满，无法报名");
         }

@@ -16,9 +16,18 @@ public interface MemberRepository extends JpaRepository<Member, Long> {
 
     List<Member> findAllByOrderByIdAsc();
 
+    /** 会员下拉只列在用档案；已合并封存的历史档案不能被充值 / 开台 / 报名等入口选中 */
+    List<Member> findByStatusOrderByIdAsc(String status);
+
+    List<Member> findAllByStatusOrderByIdAsc(String status);
+
     Optional<Member> findByCardNo(String cardNo);
 
+    Optional<Member> findByCardNoAndStatus(String cardNo, String status);
+
     List<Member> findByLevelOrderByIdAsc(String level);
+
+    List<Member> findByLevelAndStatusOrderByIdAsc(String level, String status);
 
     boolean existsByPhone(String phone);
 

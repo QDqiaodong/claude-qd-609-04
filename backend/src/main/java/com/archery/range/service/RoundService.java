@@ -20,7 +20,6 @@ import com.archery.range.dto.RoundDtos;
 import com.archery.range.repository.LaneRepository;
 import com.archery.range.repository.MemberRepository;
 import com.archery.range.repository.RoundRepository;
-
 /**
  * 计分回合。
  *
@@ -72,6 +71,12 @@ public class RoundService {
     public RoundDtos.RoundDetailView start(RoundDtos.RoundStartReq req) {
         Member member = memberRepository.findById(req.memberId())
                 .orElseThrow(() -> new BizException("会员不存在：id=" + req.memberId()));
+        // 已合并封存的来源档案不能再开始新计分回合
+        if (Member.STATUS_MERGED.equals(member.getStatus())) {
+            throw new BizException("会员卡 [" + member.getCardNo() + "] 已合并封存，不能再开始新回合"
+                    + (member.getMergedIntoId() == null ? ""
+                            : "，请使用保留档案 id=" + member.getMergedIntoId()));
+        }
         Lane lane = laneRepository.findByIdForUpdate(req.laneId())
                 .orElseThrow(() -> new BizException("箭道不存在：id=" + req.laneId()));
         if ("LOCKED".equals(lane.getStatus())) {

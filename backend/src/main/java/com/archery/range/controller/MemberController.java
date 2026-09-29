@@ -31,11 +31,17 @@ public class MemberController {
     }
 
     @GetMapping("/members")
-    public ApiResponse<List<MemberDtos.MemberView>> list(@RequestParam(required = false) String level) {
+    public ApiResponse<List<MemberDtos.MemberView>> list(
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false, defaultValue = "false") boolean includeMerged,
+            @RequestParam(required = false, defaultValue = "false") boolean mergedOnly) {
+        if (mergedOnly) {
+            return ApiResponse.success(memberService.list(false, true));
+        }
         if (level != null && !level.isBlank()) {
             return ApiResponse.success(memberService.listByLevel(level));
         }
-        return ApiResponse.success(memberService.list());
+        return ApiResponse.success(memberService.list(!includeMerged, false));
     }
 
     @GetMapping("/members/{id}")

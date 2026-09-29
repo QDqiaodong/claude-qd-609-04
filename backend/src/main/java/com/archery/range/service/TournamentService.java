@@ -901,6 +901,11 @@ public class TournamentService {
         }
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BizException("会员不存在：id=" + memberId));
+        if (Member.STATUS_MERGED.equals(member.getStatus())) {
+            throw new BizException("会员卡 [" + member.getCardNo() + "] 已合并封存，不能再记入赛事成绩"
+                    + (member.getMergedIntoId() == null ? ""
+                            : "，请使用保留档案 id=" + member.getMergedIntoId()));
+        }
         List<TournamentTeamMember> binds = teamMemberRepository
                 .findByTournamentIdOrderByTeamIdAscPositionAsc(match.getTournamentId());
         return binds.stream()
@@ -1001,6 +1006,11 @@ public class TournamentService {
         for (Long memberId : memberIds) {
             Member member = memberRepository.findById(memberId)
                     .orElseThrow(() -> new BizException("会员不存在：id=" + memberId));
+            if (Member.STATUS_MERGED.equals(member.getStatus())) {
+                throw new BizException("会员卡 [" + member.getCardNo() + "] 已合并封存，不能再加入赛事"
+                        + (member.getMergedIntoId() == null ? ""
+                                : "，请使用保留档案 id=" + member.getMergedIntoId()));
+            }
             members.add(member);
         }
         return members.toArray(new Member[0]);
